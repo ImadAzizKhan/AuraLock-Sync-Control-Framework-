@@ -15,6 +15,9 @@ import 'firebase_options.dart';
 import 'package:app_links/app_links.dart';
 import 'screens/command_center.dart'; // Agar file ka naam command_center.dart hai
 import 'package:geolocator/geolocator.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:telephony/telephony.dart';
 
 
 final FlutterLocalNotificationsPlugin bossNotifications = FlutterLocalNotificationsPlugin();
@@ -55,6 +58,27 @@ class CommandScreen extends StatefulWidget {
 }
 
 class _CommandScreenState extends State<CommandScreen> {
+
+  final Telephony telephony = Telephony.instance;
+
+  void triggerOfflineSOS() async {
+    String myBoyNumber = "Client Phone Number"; // 🚨 Add your Own number 🚨
+
+    // 1. Background mein chup-chaap SMS bhejna
+    bool? permissionsGranted = await telephony.requestPhoneAndSmsPermissions;
+    if (permissionsGranted != null && permissionsGranted) {
+      telephony.sendSms(
+        to: myBoyNumber,
+        message: "🚨 URGENT SOS: I am in danger and my internet is off! Please call me immediately!"
+      );
+    }
+
+    // 2. Foran Call mila dena
+    final Uri callUri = Uri(scheme: 'tel', path: myBoyNumber);
+    if (await canLaunchUrl(callUri)) {
+      await launchUrl(callUri);
+    }
+  }
   late IO.Socket socket;
   bool isConnected = false;
   String hisMode = "Synicing....";
@@ -81,6 +105,7 @@ class _CommandScreenState extends State<CommandScreen> {
   void initState() {
     super.initState();
     _requestPermissions();
+    FirebaseMessaging.instance.subscribeToTopic('boss_device');
     _connectToServer();
     // 👇 NFC Tap Listener
     // 👇 NFC Tap Listener
@@ -198,7 +223,7 @@ void _stopLiveTracking() {
   }
 
   void _connectToServer() {
-    socket = IO.io('https://locket-backend-t4m7.onrender.com', <String, dynamic>{
+    socket = IO.io('https://YOUR-RENDER-URL.onrender.com', <String, dynamic>{
       'transports': ['websocket', 'polling'],
       'autoConnect': true,
     });
@@ -206,7 +231,7 @@ void _stopLiveTracking() {
     socket.onConnect((_) {
       if (mounted) {
         setState(() => isConnected = true);
-        
+        socket.emit('register', 'boss');
         // 👇 NAYI LINE: Connect hote hi Imad ki app ko ping karo
         socket.emit('trigger_vibration', {'type': 'REQUEST_STATUS'}); 
       }
@@ -759,8 +784,56 @@ if (log.containsKey('image') && log['image'] != null)
               socket.emit('trigger_vibration', {'type': 'SOS_VIBRATE_ONLY'});
               ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Warning Sent ($sosPressCount/3)")));
             } else {
-              showDialog(context: context, builder: (bc) => AlertDialog(backgroundColor: Colors.grey[900], title: const Text("⚠️ TRIGGER ALARM?", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)), content: const Text("Blast siren and override modes?", style: TextStyle(color: Colors.white)), actions: [TextButton(child: const Text("CANCEL"), onPressed: () { setState(() => sosPressCount = 0); Navigator.pop(bc); }), ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: Colors.red), child: const Text("BLAST"), onPressed: () { _startLiveDangerTracking(); setState(() => sosPressCount = 0); Navigator.pop(bc); })]));
-            }
+              showDialog(
+                    context: context,
+                    builder: (bc) => AlertDialog(
+                      backgroundColor: Colors.grey[900],
+                      title: const Text(
+                        "⚠️ TRIGGER ALARM?",
+                        style: TextStyle(
+                          color: Colors.redAccent,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      content: const Text(
+                        "Blast siren and override modes?",
+                        style: TextStyle(color: Colors.white),
+                      ),
+                      actions: [
+                        TextButton(
+                          child: const Text("CANCEL"),
+                          onPressed: () {
+                            
+                            setState(() => sosPressCount = 0);
+                            Navigator.pop(bc);
+                          },
+                        ),
+                        ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.red,
+                          ),
+                          child: const Text("BLAST"),
+                          onPressed: () {
+                            if (isConnected == false) {
+                              triggerOfflineSOS(); // Bina internet SMS & Call karega
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    "No Internet! Sending Emergency SMS & Call...",
+                                  ),
+                                ),
+                              );
+                            } else {
+                              _startLiveDangerTracking(); // Normal internet wali tracking
+                            }
+                            setState(() => sosPressCount = 0);
+                            Navigator.pop(bc);
+                          },
+                        ),
+                      ],
+                    ),
+                  );
+                }
           }, child: const Icon(Icons.warning, color: Colors.white, size: 30)),
           GestureDetector(onLongPressStart: (_) => socket.emit('trigger_vibration', {'type': 'HEART_PULSE_START'}), onLongPressEnd: (_) => socket.emit('trigger_vibration', {'type': 'HEART_PULSE_STOP'}), child: Container(padding: const EdgeInsets.all(15), decoration: BoxDecoration(color: Colors.pink.withOpacity(0.2), shape: BoxShape.circle, border: Border.all(color: Colors.pinkAccent)), child: const Icon(Icons.favorite, color: Colors.pinkAccent, size: 50))),
         ]),

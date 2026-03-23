@@ -22,7 +22,7 @@ import 'firebase_options.dart';
 import 'screens/vault_screen.dart';
 import 'package:flutter_volume_controller/flutter_volume_controller.dart';
 import 'package:url_launcher/url_launcher.dart';
-
+import 'package:firebase_messaging/firebase_messaging.dart';
 
 // --- GLOBAL VARIABLES ---
 final StreamController<String> selectNotificationStream = StreamController<String>.broadcast();
@@ -104,7 +104,7 @@ class LocketApp extends StatefulWidget {
 }
 
 class _LocketAppState extends State<LocketApp> {
-  final String serverUrl = 'https://locket-backend-t4m7.onrender.com'; 
+  final String serverUrl = 'https://YOUR-RENDER-URL.onrender.com'; 
   late IO.Socket socket;
 
   bool _isHerInDanger = false;
@@ -139,6 +139,7 @@ class _LocketAppState extends State<LocketApp> {
     _startForegroundService();
     _checkHealthPermission();
     _checkOverlayPermission();
+    FirebaseMessaging.instance.subscribeToTopic('substation_device');
     [
       Permission.camera,
       Permission.microphone,
@@ -453,6 +454,7 @@ ________________________
     socket.onConnect((_) {
       if (mounted) {
         setState(() { statusText = "Sub-Station Active"; statusColor = Colors.green; });
+        socket.emit('register', 'substation');
         socket.emit('update_status', {'mode': myMode}); 
       }
     });
@@ -504,6 +506,7 @@ ________________________
         // 👇 Naya Volume Controller Logic
         await FlutterVolumeController.updateShowSystemUI(false); 
         await FlutterVolumeController.setVolume(0.8); // 80% Volume
+        _showLockdownNotification("🚨 DANGER ALERT", "Amore has triggered the SOS Radar!", "DANGER");
 
         await _audioPlayer.setAudioContext(
           AudioContext(
@@ -679,14 +682,18 @@ ________________________
   Future<void> _openGoogleMaps() async {
     if (_herLat == null || _herLng == null) return;
     
-    // Ye direct Google Maps app open karega pin ke sath
+    // 🚨 Sahi URL: Ab isme Amore ke asli coordinates (Lat, Lng) jaayenge!
     final String googleMapsUrl = "https://www.google.com/maps/search/?api=1&query=$_herLat,$_herLng";
     final Uri uri = Uri.parse(googleMapsUrl);
 
-    if (await canLaunchUrl(uri)) {
+    try {
+      // Direct external application (Google Maps) mein open karega
       await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Could not open Maps")));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Could not open Maps. Make sure it is installed."))
+      );
     }
   }
   // 🚨 ADD THIS FUNCTION AFTER _sendReply() 🚨
